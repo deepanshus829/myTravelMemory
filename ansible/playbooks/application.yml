@@ -1,0 +1,118 @@
+---
+- name: Deploy TravelMemory application
+  hosts: web
+  become: true
+
+  tasks:
+
+    - name: Install required packages
+      ansible.builtin.dnf:
+        name:
+          - git
+          - nginx
+          - gcc-c++
+          - make
+        state: present
+
+    - name: Install Node.js
+      ansible.builtin.shell: |
+        curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
+        dnf install -y nodejs
+      args:
+        creates: /usr/bin/node
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_directory }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0755"
+
+    - name: Clone TravelMemory repository
+      ansible.builtin.git:
+        repo: "{{ github_repository }}"
+        dest: "{{ app_directory }}"
+        version: main
+        force: true
+      become_user: "{{ app_user }}"
+
+    - name: Install backend dependencies
+      ansible.builtin.npm:
+        path: "{{ app_directory }}/backend"
+        state: present
+
+    - name: Install frontend dependencies
+      ansible.builtin.npm:
+        path: "{{ app_directory }}/frontend"
+        state: present
+
+    - name: Create backend environment file
+      ansible.builtin.template:
+        src: ../templates/backend.env.j2
+        dest: "{{ app_directory }}/backend/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0600"
+
+    - name: Create frontend environment file
+      ansible.builtin.copy:
+        dest: "{{ app_directory }}/frontend/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0644"
+        content: |
+          REACT_APP_BACKEND_URL=http://{{ ansible_host }}
+
+    - name: Build React frontend
+      ansible.builtin.command:
+        cmd: npm run build
+        chdir: "{{ app_directory }}/frontend"
+      become_user: "{{ app_user }}"
+
+    - name: Create backend systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/travelmemory-backend.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=TravelMemory Node.js Backend
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ app_user }}
+          WorkingDirectory={{ app_directory }}/backend
+          ExecStart=/usr/bin/node index.js
+          Restart=always
+          Environment=NODE_ENV=production
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable backend service
+      ansible.builtin.systemd:
+        name: travelmemory-backend
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Configure Nginx
+      ansible.builtin.template:
+        src: ../templates/nginx.conf.j2
+        dest: /etc/nginx/conf.d/travelmemory.conf
+        mode: "0644"
+      notify: Restart Nginx
+
+    - name: Enable Nginx
+      ansible.builtin.systemd:
+        name: nginx
+        enabled: true
+        state: started
+
+  handlers:
+
+    - name: Restart Nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: restarted

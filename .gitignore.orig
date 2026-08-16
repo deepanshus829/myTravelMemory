@@ -128,10 +128,19 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+<<<<<<< HEAD
+<<<<<<< HEAD
+=======
+# 1. Add Terraform generated files to .gitignore
+cat >> .gitignore <<'EOF'
+
 # Terraform
 .terraform/
-**/.terraform/
 *.tfstate
 *.tfstate.*
 .terraform.lock.hcl
+EOF
+>>>>>>> 92b48d8 (minor change)
+=======
 terraform.tfvars
+>>>>>>> c935c1f (Graded Assignment on Deploying a MERN Application through Terraform and Ansible)
