@@ -1,280 +1,143 @@
-# Travel Memory Application Deployment (MERN Stack on AWS EC2)
+# TravelMemory Deployment Guide (Terraform & Ansible)
 
-## 📌 Introduction
+This repository contains the deployment automation for the **MERN (MongoDB, Express, React, Node.js) TravelMemory Application**. The setup is divided into two primary sections:
 
-The Travel Memory application is a full-stack web application built using the MERN stack (MongoDB, Express.js, React.js, Node.js).
-This document outlines the complete deployment process on AWS EC2, including backend setup, frontend configuration, load balancing, and scaling.
-
----
-
-# 🚀 1. Backend Setup
-
-## 1.1 Launch EC2 Instance
-
-* Instance Type: t2.micro
-* OS: Ubuntu
-* Security Group: Allow ports **22 (SSH), 80 (HTTP), 5000 (Backend)**
+1. **Infrastructure Provisioning with Terraform**: Sets up a secure, highly-available AWS network (VPC, Subnets, Gateways) and provisions EC2 instances.
+2. **Configuration Management & Application Deployment with Ansible**: Installs, configures, and secures MongoDB on a private DB instance, and builds/runs the Node.js backend and React frontend on a public Web instance.
 
 ---
 
-## 1.2 Install Node.js
+## Architecture Overview
 
-```bash
-sudo apt update
-sudo apt install nodejs npm -y
-node -v
-npm -v
+```mermaid
+graph TD
+    subgraph AWS VPC (10.0.0.0/16)
+        subgraph Public Subnet (10.0.1.0/24)
+            IGW[Internet Gateway]
+            WebSG[Web Security Group]
+            WebEC2["Web Server (EC2)<br>Node.js Backend & React Frontend (Nginx Proxy)"]
+            
+            IGW <--> WebEC2
+            WebEC2 --- WebSG
+        end
+
+        subgraph Private Subnet (10.0.2.0/24)
+            DBSG[Database Security Group]
+            DBEC2["Database Server (EC2)<br>Secured MongoDB"]
+            NAT[NAT Gateway]
+            
+            DBEC2 --- DBSG
+            DBEC2 --> NAT
+        end
+    end
+    
+    NAT --> IGW
+    WebEC2 -- Port 27017 (MongoDB) --> DBEC2
+    Developer[Developer / Operator] -- SSH (Port 22) --> WebEC2
 ```
+
+- **VPC Network**: 10.0.0.0/16 address space.
+- **Public Subnet**: Hosts the Web server and has direct internet access via an Internet Gateway.
+- **Private Subnet**: Hosts the MongoDB database server. It has no public IP and routes outbound traffic via a NAT Gateway for package updates.
+- **Security hardening**: 
+  - The database is completely isolated in the private subnet; it only accepts incoming traffic on port `27017` from the Web Server's Security Group.
+  - SSH access is restricted, and root logins are hardened.
 
 ---
 
-## 1.3 Clone Repository
+## Part 1: Infrastructure Setup with Terraform
 
-```bash
-git clone https://github.com/UnpredictablePrashant/TravelMemory.git
-cd TravelMemory/backend
-```
+### 1. Prerequisites
+- [Terraform](https://www.terraform.io/downloads) (v1.5+ recommended) installed.
+- [AWS CLI](https://aws.amazon.com/cli/) installed and configured (`aws configure`).
 
----
+### 2. Configuration (`terraform/`)
+Navigate to the `terraform/` directory:
+- [provider.tf](file:///d:/auropayrepos/myTravelMemory/terraform/provider.tf): Configures AWS provider.
+- [vpc.tf](file:///d:/auropayrepos/myTravelMemory/terraform/vpc.tf): Declares the VPC, Internet Gateway, NAT Gateway, Public/Private subnets, and Route Tables.
+- [security_groups.tf](file:///d:/auropayrepos/myTravelMemory/terraform/security_groups.tf): Defines the firewall rules.
+  - Web Server allows SSH (restricted to configured IPs) and HTTP (Port 80).
+  - Database Server allows inbound MongoDB traffic (Port 27017) *only* from the Web Server's security group.
+- [ec2.tf](file:///d:/auropayrepos/myTravelMemory/terraform/ec2.tf): Deploys the Amazon Linux EC2 instances. 
+  - Note: The database instance uses `associate_public_ip_address = false` to guarantee isolation.
+- [iam.tf](file:///d:/auropayrepos/myTravelMemory/terraform/iam.tf): IAM roles and instance profiles for future extensions.
+- [variables.tf](file:///d:/auropayrepos/myTravelMemory/terraform/variables.tf) / [outputs.tf](file:///d:/auropayrepos/myTravelMemory/terraform/outputs.tf): Parameterizes and outputs resource data.
 
-## 1.4 Install Dependencies
-
-```bash
-npm install
-```
-
----
-
-## 1.5 Configure Environment Variables (.env)
-
-Create `.env` file:
-
-```env
-PORT=5000
-MONGO_URI=your_mongodb_connection_string
-```
-
----
-
-## 1.6 Install PM2 (Process Manager)
-
-```bash
-sudo npm install -g pm2
-```
-
----
-
-## 1.7 Start Backend Server
-
-```bash
-pm2 start index.js --name backend
-pm2 save
-pm2 startup
-```
+### 3. Deployment Steps
+1. **Initialize Terraform**:
+   ```bash
+   cd terraform
+   terraform init
+   ```
+2. **Plan & Validate**:
+   ```bash
+   terraform plan
+   ```
+3. **Apply Configuration**:
+   ```bash
+   terraform apply
+   ```
+4. **Outputs**:
+   Upon completion, note the outputs:
+   - `web_public_ip`: The external IP address to access the app and SSH.
+   - `database_private_ip`: The internal IP of the MongoDB instance.
 
 ---
 
-## 1.8 Verify Backend
+## Part 2: Configuration and Deployment with Ansible
 
-```bash
-curl http://localhost:5000/trip
-```
+Ansible automates package installation, database setup, environment variable templating, and server startup.
 
----
+### 1. Prerequisites
+- [Ansible](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html) installed on your control machine.
+- Your SSH private key (`travel-memory-key.pem`) available on your local path.
 
-# 🎨 2. Frontend Setup
+### 2. Configuration (`ansible/`)
+Navigate to the `ansible/` directory:
+- **Inventory File** ([inventory.ini](file:///d:/auropayrepos/myTravelMemory/ansible/inventory.ini)): Update this file with the output public/private IPs from Terraform:
+  ```ini
+  [web]
+  web_server ansible_host=<YOUR_WEB_PUBLIC_IP> ansible_user=ec2-user ansible_ssh_private_key_file=../travel-memory-key.pem
 
-## 2.1 Navigate to Frontend
+  [database]
+  db_server ansible_host=<YOUR_DB_PRIVATE_IP> ansible_user=ec2-user ansible_ssh_private_key_file=../travel-memory-key.pem ansible_ssh_common_args='-o ProxyCommand="ssh -W %h:%p -q ec2-user@<YOUR_WEB_PUBLIC_IP> -i ../travel-memory-key.pem"'
+  ```
+- **Variables** ([group_vars/all.yml](file:///d:/auropayrepos/myTravelMemory/ansible/group_vars/all.yml)): Define database parameters, database users, backend ports, and the app repository URL.
+- **Playbooks** ([playbooks/](file:///d:/auropayrepos/myTravelMemory/ansible/playbooks/)):
+  - [mongodb.yml](file:///d:/auropayrepos/myTravelMemory/ansible/playbooks/mongodb.yml): Configures MongoDB repository, installs the database, updates configuration to bind internally, enables authorization, and creates a database admin user.
+  - [application.yml](file:///d:/auropayrepos/myTravelMemory/ansible/playbooks/application.yml): Installs Node.js & NPM, clones the application, installs dependencies, constructs the `.env` configuration, builds the React frontend, sets up Systemd for background execution, and proxies traffic via Nginx.
 
-```bash
-cd ~/TravelMemory/frontend
-```
+### 3. Execution Steps
+Run the playbooks in order:
 
----
-
-## 2.2 Install Dependencies
-
-```bash
-npm install
-```
-
----
-
-## 2.3 Update Backend URL
-
-Edit:
-
-```bash
-src/url.js
-```
-
-```js
-export const baseUrl = "http://travel-memory-alb-1297786136.ap-south-1.elb.amazonaws.com";
-```
+1. **Deploy and Secure MongoDB**:
+   ```bash
+   ansible-playbook -i inventory.ini playbooks/mongodb.yml
+   ```
+2. **Deploy MERN Web & Frontend**:
+   ```bash
+   ansible-playbook -i inventory.ini playbooks/application.yml
+   ```
 
 ---
 
-## 2.4 Build React App
+## Application Access & Format
 
-```bash
-npm run build
-```
+Once deployed, the application will be accessible via HTTP at the public IP address of your web server: `http://<YOUR_WEB_PUBLIC_IP>`.
 
----
-
-## 2.5 Install and Configure Nginx
-
-```bash
-sudo apt install nginx -y
-```
-
----
-
-## 2.6 Deploy Build to Nginx
-
-```bash
-sudo rm -rf /var/www/html/*
-sudo cp -r build/* /var/www/html/
-```
-
----
-
-## 2.7 Configure Nginx
-
-```bash
-sudo nano /etc/nginx/sites-available/default
-```
-
-### Configuration:
-
-```nginx
-server {
-    listen 80;
-
-    root /var/www/html;
-    index index.html;
-
-    location /static/ {
-        try_files $uri =404;
-    }
-
-    location /trip {
-        proxy_pass http://localhost:5000;
-    }
-
-    location / {
-        try_files $uri /index.html;
-    }
+### Data format to be added:
+```json
+{
+    "tripName": "Incredible India",
+    "startDateOfJourney": "19-03-2022",
+    "endDateOfJourney": "27-03-2022",
+    "nameOfHotels":"Hotel Namaste, Backpackers Club",
+    "placesVisited":"Delhi, Kolkata, Chennai, Mumbai",
+    "totalCost": 800000,
+    "tripType": "leisure",
+    "experience": "Lorem Ipsum...",
+    "image": "https://t3.ftcdn.net/jpg/03/04/85/26/360_F_304852693_nSOn9KvUgafgvZ6wM0CNaULYUa7xXBkA.jpg",
+    "shortDescription":"India is a wonderful country with rich culture and good people.",
+    "featured": true
 }
 ```
-
----
-
-## 2.8 Restart Nginx
-
-```bash
-sudo systemctl restart nginx
-```
-
----
-
-# ⚖️ 3. Load Balancer Setup
-
-## 3.1 Create Target Group
-
-* Target Type: Instance
-* Protocol: HTTP
-* Port: 5000
-* Health Check Path: `/trip`
-
----
-
-## 3.2 Register Targets
-
-* Add both EC2 instances
-* Ensure status becomes **Healthy**
-
----
-
-## 3.3 Create Application Load Balancer
-
-* Type: Application Load Balancer
-* Scheme: Internet-facing
-* Listener: HTTP (Port 80)
-* Forward to Target Group
-
----
-
-## 3.4 Verify Load Balancer
-
-Access:
-
-```text
-http://travel-memory-alb-1297786136.ap-south-1.elb.amazonaws.com
-```
-
----
-
-# 📈 4. Scaling the Application
-
-## 4.1 Create Multiple EC2 Instances
-
-* Instance 1 → Backend + Frontend
-* Instance 2 → Backend + Frontend
-
----
-
-## 4.2 Deploy Same Code on Both Instances
-
-* Clone repository
-* Setup backend (PM2)
-* Setup frontend (Nginx)
-
----
-
-## 4.3 Add Instances to Load Balancer
-
-* Register both instances in target group
-* Verify health checks
-
----
-
-## 4.4 Load Distribution
-
-* Traffic is distributed automatically by ALB
-* Ensures high availability and fault tolerance
-
----
-
-# 🌐 5. Final Application URL
-
-```text
-http://travel-memory-alb-1297786136.ap-south-1.elb.amazonaws.com
-```
-
----
-
-# 🧠 Key Features Achieved
-
-* Full MERN stack deployment
-* Reverse proxy using Nginx
-* Process management using PM2
-* Load balancing using AWS ALB
-* Scalable architecture with multiple EC2 instances
-
----
-
-# ⚠️ Challenges Faced
-
-* Nginx misconfiguration causing JS 404 errors
-* React build caching issues
-* Backend validation errors
-* EC2 IP changes (resolved using ALB)
-
----
-
-# ✅ Conclusion
-
-The Travel Memory application has been successfully deployed on AWS EC2 with a scalable and production-ready architecture. The use of an Application Load Balancer ensures high availability and efficient traffic distribution across multiple instances.
-
----
