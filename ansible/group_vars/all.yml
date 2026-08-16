@@ -1,0 +1,15 @@
+app_user: ec2-user
+
+app_directory: /opt/travelmemory
+
+backend_port: 3001
+
+mongodb_host: "10.0.2.149"
+
+mongodb_database: travelmemory
+
+mongodb_username: travelmemory_admin
+
+mongodb_password: "TravelMemory2026"
+
+github_repository: "https://github.com/UnpredictablePrashant/TravelMemory.git"
