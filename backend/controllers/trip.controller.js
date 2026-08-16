@@ -1,9 +1,9 @@
 const tripModel = require('../models/trip.model')
 
-async function tripAdditionController(req, res){
-    console.log(req.body)
-    try{
-        let tripDetail = tripModel.Trip({
+async function tripAdditionController(req, res) {
+    console.log("BODY:", req.body)
+    try {
+        let tripDetail = new tripModel.Trip({
             tripName: req.body.tripName,
             startDateOfJourney: req.body.startDateOfJourney,
             endDateOfJourney: req.body.endDateOfJourney,
@@ -17,32 +17,49 @@ async function tripAdditionController(req, res){
             featured: req.body.featured
         })
         await tripDetail.save()
-        res.send('Trip added Successfully')
-    }catch(error){
-        console.log('ERROR')
-        res.send('SOMETHING WENT WRONG')
+        res.status(200).json({
+            message: "Trip added Successfully",
+        })
+    } catch (error) {
+        console.log('ERROR', error)
+        res.status(500).json({
+            message: "SOMETHING WENT WRONG",
+            error: error.message,
+        })
     }
 }
 
-async function getTripDetailsController(req,res){
-    try{
+async function getTripDetailsController(req, res) {
+    try {
         tripModel.Trip.find({})
-        .then(doc => res.send(doc))
-        .catch(err => res.send('SOMETHING WENT WRONG WHILE FETCHING'))
-    }catch(error){
+            .then(doc => res.send(doc))
+            .catch(err => res.status(500).json({
+                message: "SOMETHING WENT WRONG WHILE FETCHING",
+                error: err.message,
+            }))
+    } catch (error) {
         console.log('ERROR')
-        res.send('SOMETHING WENT WRONG')
+        res.status(500).json({
+            message: "SOMETHING WENT WRONG",
+            error: error.message,
+        })
     }
 }
 
-async function getTripDetailsByIdController(req,res){
-    try{
+async function getTripDetailsByIdController(req, res) {
+    try {
         tripModel.Trip.findById(req.params.id)
-        .then(doc => res.send(doc))
-        .catch(err => res.send('Nothing in database'))
-    }catch(error){
+            .then(doc => res.send(doc))
+            .catch(err => res.status(500).json({
+                message: "NOTHING IN DATABASE",
+                error: err.message,
+            }))
+    } catch (error) {
         console.log('ERROR')
-        res.send('SOMETHING WENT WRONG')
+        res.status(500).json({
+            message: "SOMETHING WENT WRONG",
+            error: error.message,
+        })
     }
 }
 module.exports = { tripAdditionController, getTripDetailsController, getTripDetailsByIdController }

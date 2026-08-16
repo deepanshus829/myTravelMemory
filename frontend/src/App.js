@@ -1,6 +1,7 @@
 import logo from './logo.svg';
 import './App.css';
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 
 import Header from './components/UIC/Header';
 import Home from './components/pages/Home';
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
 function App() {
   return (
     <div>
+      <Toaster position="top-right" />
       <Header></Header>
       <RouterProvider router={router}></RouterProvider>
     </div>

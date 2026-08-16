@@ -37,7 +37,8 @@ const tripSchema = mongoose.Schema({
   },
   shortDescription: {
     type: String,
-    required: true
+    required: true,
+    default: "No description"
   },
   featured: {
     type: Boolean,
